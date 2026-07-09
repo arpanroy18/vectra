@@ -23,8 +23,8 @@ def cosine(query: np.ndarray, matrix: np.ndarray) -> np.ndarray:
     """Cosine distance: 1 - cos(q, x)."""
     q = np.asarray(query, dtype=np.float32)
     m = _as_rows(matrix)
-    qn = q / np.linalg.norm(q)
-    mn = m / np.linalg.norm(m, axis=1, keepdims=True)
+    qn = q / max(np.linalg.norm(q), 1e-12)
+    mn = m / np.maximum(np.linalg.norm(m, axis=1, keepdims=True), 1e-12)
     return 1.0 - mn @ qn
 
 
