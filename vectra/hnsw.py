@@ -53,3 +53,18 @@ class HNSW:
         self.entry: int = -1
         self.max_level: int = -1
 
+    # ------------------------------------------------------------------ util
+
+    def __len__(self) -> int:
+        return int(self._alive.sum())
+
+    @property
+    def capacity(self) -> int:
+        return len(self.vectors)
+
+    def _tq(self, q: np.ndarray) -> np.ndarray:
+        return dist.working_query(q, self.metric)
+
+    def _dist(self, qw: np.ndarray, row: int) -> float:
+        return float(dist.work_distance(self.metric, qw, self._w[row:row + 1])[0])
+
