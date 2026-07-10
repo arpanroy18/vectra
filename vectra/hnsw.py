@@ -68,3 +68,19 @@ class HNSW:
     def _dist(self, qw: np.ndarray, row: int) -> float:
         return float(dist.work_distance(self.metric, qw, self._w[row:row + 1])[0])
 
+    def _dists(self, qw: np.ndarray, rows: Sequence[int]) -> np.ndarray:
+        return dist.work_distance(self.metric, qw,
+                                  self._w[np.asarray(rows, dtype=np.int64)])
+
+    def _grow(self, n: int) -> None:
+        add = n - len(self.vectors)
+        if add <= 0:
+            return
+        cap = max(64, 1 << max(int(math.ceil(math.log2(n))), 6))
+        self.vectors = np.vstack([self.vectors, np.zeros((cap - len(self.vectors), self.dim), np.float32)])
+        if self.metric == "cosine":
+            self._w = np.vstack([self._w, np.zeros((cap - len(self._w), self.dim), np.float32)])
+        else:
+            self._w = self.vectors
+        self._alive = np.concatenate([self._alive, np.zeros(cap - len(self._alive), bool)])
+
