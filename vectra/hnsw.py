@@ -147,3 +147,38 @@ class HNSW:
                     improved = True
         return best
 
+    def _search_layer(self, qw: np.ndarray, eps: List[int], ef: int, layer: int) -> List[Tuple[float, int]]:
+        """Best-first search; returns up to ``ef`` (distance, row) results."""
+        visited = np.zeros(len(self.vectors), bool)
+        cand_heap: List[Tuple[float, int]] = []  # min-heap of candidates to expand
+        res_heap: List[Tuple[float, int]] = []   # max-heap (via -d) of results
+        for ep in eps:
+            if ep < 0 or not self._alive[ep]:
+                continue
+            d = self._dist(qw, ep)
+            visited[ep] = True
+            heapq.heappush(cand_heap, (d, ep))
+            heapq.heappush(res_heap, (-d, ep))
+        while cand_heap:
+            d, r = heapq.heappop(cand_heap)
+            worst = -res_heap[0][0]
+            if d > worst and len(res_heap) >= ef:
+                break
+            new = np.asarray(self.links[r][layer], dtype=np.int64)
+            if not len(new):
+                continue
+            new = new[~visited[new]]
+            visited[new] = True
+            new = new[self._alive[new]]
+            for nb, dnb in zip(new.tolist(), self._dists(qw, new)):
+                dnb = float(dnb)
+                worst = -res_heap[0][0]
+                if len(res_heap) < ef or dnb < worst:
+                    heapq.heappush(cand_heap, (dnb, nb))
+                    heapq.heappush(res_heap, (-dnb, nb))
+                    if len(res_heap) > ef:
+                        heapq.heappop(res_heap)
+        out = [(-nd, r) for nd, r in res_heap]
+        out.sort()
+        return out
+
