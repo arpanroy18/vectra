@@ -214,3 +214,23 @@ class HNSW:
                     chosen.add(r)
         return [r for _, r in picked]
 
+    def search(self, query: np.ndarray, k: int, ef_search: Optional[int] = None,
+               predicate: Predicate = None) -> List[Tuple[int, float]]:
+        """Return [(row, distance)] for the k nearest live nodes satisfying
+        ``predicate`` (row -> bool). Distance is in the index metric."""
+        if self.entry == -1 or k <= 0:
+            return []
+        ef = max(ef_search or 100, k)
+        qw = self._tq(np.asarray(query, dtype=np.float32))
+        ep = self.entry
+        for layer in range(self.max_level, 0, -1):
+            ep = self._greedy_layer(qw, ep, layer)
+        cands = self._search_layer(qw, [ep], ef, 0)
+        out = []
+        for d, r in cands:
+            if predicate is None or predicate(r):
+                out.append((r, float(d)))
+                if len(out) == k:
+                    break
+        return out
+
