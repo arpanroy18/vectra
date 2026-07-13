@@ -182,3 +182,35 @@ class HNSW:
         out.sort()
         return out
 
+    def _select(self, cands: List[Tuple[float, int]], maxM: int) -> List[int]:
+        """Neighbour selection.
+
+        With ``select_heuristic`` (default) use the paper's diversity rule:
+        keep a candidate only if it is closer to the query than to every
+        already-picked neighbour — this keeps long-range edges. Otherwise take
+        the ``maxM`` closest candidates. One pairwise distance matrix among
+        candidates is computed up front instead of per-pair numpy calls.
+        """
+        cands = sorted(cands)
+        if not self.select_heuristic:
+            return [r for _, r in cands[:maxM]]
+        rows = [r for _, r in cands]
+        inner = dist.within(self.metric, self._w[np.asarray(rows, dtype=np.int64)])
+        picked: List[Tuple[float, int]] = []
+        picked_pos: List[int] = []
+        for j, (d, r) in enumerate(cands):
+            if len(picked) >= maxM:
+                break
+            if all(d <= float(inner[j, p]) for p in picked_pos):
+                picked.append((d, r))
+                picked_pos.append(j)
+        if len(picked) < maxM:  # heuristic under-filled; top up with nearest
+            chosen = {r for _, r in picked}
+            for d, r in cands:
+                if len(picked) >= maxM:
+                    break
+                if r not in chosen:
+                    picked.append((d, r))
+                    chosen.add(r)
+        return [r for _, r in picked]
+
