@@ -234,3 +234,16 @@ class HNSW:
                     break
         return out
 
+    # -------------------------------------------------------------- deletion
+
+    def mark_deleted(self, row: int) -> None:
+        self._alive[row] = False
+
+    def remap(self, keep_rows: List[int]) -> "HNSW":
+        """Fresh graph built from ``keep_rows`` only (reindexing to 0..n-1)."""
+        new = HNSW(self.dim, self.metric, self.M, self.ef_construction,
+                   select_heuristic=self.select_heuristic)
+        for i, r in enumerate(keep_rows):
+            new.add(i, self.vectors[r])
+        return new
+
