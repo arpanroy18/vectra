@@ -200,7 +200,7 @@ class VectorIndex:
         # argpartition avoids a full sort when only k results are needed
         kk = min(k, len(rows))
         sel = np.argpartition(d, kk - 1)[:kk]
-        top = rows[sel]
+        top = rows[sel[np.argsort(d[sel])]]
         return [(self.ids[r], float(dist.pairwise(self.metric, q, self.vectors[r])))
                 for r in top]
 
