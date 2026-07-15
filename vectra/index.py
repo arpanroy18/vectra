@@ -173,3 +173,38 @@ class VectorIndex:
         rows = self.metadata.match_rows(flt)
         return lambda r: r in rows
 
+    def search(
+        self,
+        query: np.ndarray,
+        k: int = 10,
+        filter: Optional[Dict[str, Any]] = None,
+        ef_search: Optional[int] = None,
+    ) -> List[SearchResult]:
+        """Top-k nearest neighbours, optionally restricted by metadata."""
+        q = self._check(query)[0]
+        pred = self._predicate(filter)
+        if self._graph is not None:
+            hits = self._graph.search(q, k, ef_search or self.ef_search, pred)
+            return [(self.ids[r], d) for r, d in hits]
+        mask = self._alive.copy()
+        if pred is not None:
+            keep = np.zeros(len(mask), bool)
+            for r in self.metadata.match_rows(filter) or ():
+                keep[r] = True
+            mask &= keep
+        rows = np.nonzero(mask[: len(self.ids)])[0]
+        if not len(rows):
+            return []
+        qw = dist.working_query(q, self.metric)
+        d = dist.work_distance(self.metric, qw, self._w[rows])
+        # argpartition avoids a full sort when only k results are needed
+        kk = min(k, len(rows))
+        sel = np.argpartition(d, kk - 1)[:kk]
+        top = rows[sel]
+        return [(self.ids[r], float(dist.pairwise(self.metric, q, self.vectors[r])))
+                for r in top]
+
+    async def search_async(self, query: np.ndarray, k: int = 10, **kw) -> List[SearchResult]:
+        return await asyncio.get_event_loop().run_in_executor(
+            _EXECUTOR, lambda: self.search(query, k, **kw))
+
