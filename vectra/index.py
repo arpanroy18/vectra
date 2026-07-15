@@ -165,3 +165,11 @@ class VectorIndex:
             if self._graph is not None:
                 self._graph.add(row, self.vectors[row])
 
+    # ---------------------------------------------------------------- search
+
+    def _predicate(self, flt: Optional[Dict[str, Any]]):
+        if flt is None:
+            return None
+        rows = self.metadata.match_rows(flt)
+        return lambda r: r in rows
+
