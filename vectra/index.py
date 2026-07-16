@@ -266,3 +266,28 @@ class VectorIndex:
                 g.add(i, self.vectors[i])
             self._graph = g
 
+    # ------------------------------------------------------------ persistence
+
+    def save(self, path: str) -> None:
+        """Write the index to ``path`` in vectra's ``.vdb`` format."""
+        n = len(self.ids)
+        sections = {
+            "config": storage.encode_json({
+                "dimension": self.dim, "metric": self.metric,
+                "index": self.index_type, "ef_search": self.ef_search,
+                "quantization": self.quantization, "seed": self.seed,
+                **self._hnsw_args, **self._pq_args}),
+            "ids": storage.encode_ids(self.ids),
+            "vectors": storage.encode_vectors(self.vectors[:n]),
+            "alive": np.packbits(self._alive[:n]).tobytes(),
+            "metadata": self.metadata.to_json(),
+        }
+        if self.codes is not None:
+            sections["codes"] = np.ascontiguousarray(self.codes).tobytes()
+            sections["quantizer"] = storage.encode_json({
+                "kind": self.quantization, "state": self._quantizer.state()})
+        if self._graph is not None:
+            sections["hnsw"] = storage.encode_json(self._graph.graph_state())
+        storage.write(path, sections)
+
+    @classmethod
