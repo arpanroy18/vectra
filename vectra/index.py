@@ -208,3 +208,21 @@ class VectorIndex:
         return await asyncio.get_event_loop().run_in_executor(
             _EXECUTOR, lambda: self.search(query, k, **kw))
 
+    def search_batch(self, queries: np.ndarray, k: int = 10, **kw) -> List[List[SearchResult]]:
+        # Vectorized fast path: unfiltered flat search is one big matmul.
+        if self._graph is None and not kw.get("filter"):
+            q = self._check(queries)
+            rows = np.nonzero(self._alive[: len(self.ids)])[0]
+            if not len(rows):
+                return [[] for _ in range(len(q))]
+            qw = dist.working(q, self.metric)
+            d = dist.work_distance(self.metric, qw, self._w[rows])
+            kk = min(k, len(rows))
+            part = np.argpartition(d, kk - 1, axis=1)[:, :kk]
+            out = []
+            for qi in range(len(q)):
+                sel = part[qi][np.argsort(d[qi, part[qi]])]
+                out.append([(self.ids[rows[r]], float(d[qi, r])) for r in sel])
+            return out
+        return list(_EXECUTOR.map(lambda q: self.search(q, k, **kw), queries))
+
