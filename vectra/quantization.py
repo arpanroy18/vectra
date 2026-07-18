@@ -48,3 +48,28 @@ class ScalarQuantizer:
         return q
 
 
+def _kmeans(x: np.ndarray, k: int, iters: int, rng: np.random.Generator) -> np.ndarray:
+    """Plain Lloyd's algorithm with k-means++-style greedy seeding."""
+    n = len(x)
+    k = min(k, n)
+    # Seed: pick first at random, then greedily farthest-point sampling.
+    first = rng.integers(n)
+    centroids = [x[first]]
+    d2 = np.sum((x - x[first]) ** 2, axis=1)
+    for _ in range(k - 1):
+        centroids.append(x[int(np.argmax(d2))])
+        d2 = np.minimum(d2, np.sum((x - centroids[-1]) ** 2, axis=1))
+    c = np.stack(centroids)
+    for _ in range(iters):
+        assign = np.argmin(((x[:, None, :] - c[None]) ** 2).sum(-1), axis=1)
+        new = c.copy()
+        for j in range(k):
+            pts = x[assign == j]
+            if len(pts):
+                new[j] = pts.mean(axis=0)
+        if np.allclose(new, c):
+            break
+        c = new
+    return c
+
+
