@@ -93,3 +93,23 @@ class ProductQuantizer:
         ])
         return self
 
+    def transform(self, vectors: np.ndarray) -> np.ndarray:
+        if self.centroids is None:
+            raise RuntimeError("quantizer is not fitted")
+        v = np.asarray(vectors, np.float32).reshape(-1, self.n_sub, self.sub_dim)
+        # distance to each centroid in each subspace
+        d = ((v[:, :, None, :] - self.centroids[None]) ** 2).sum(-1)
+        return np.argmin(d, axis=-1).astype(np.uint8 if self.n_clusters <= 256 else np.uint16)
+
+    def inverse(self, codes: np.ndarray) -> np.ndarray:
+        return self.centroids[np.arange(self.n_sub)[None, :], codes].reshape(-1, self.dim)
+
+    def state(self) -> Dict:
+        return {"centroids": self.centroids.tolist(), "n_sub": self.n_sub,
+                "n_clusters": self.n_clusters}
+
+    @classmethod
+    def from_state(cls, dim: int, state: Dict) -> "ProductQuantizer":
+        q = cls(dim, n_sub=state["n_sub"], n_clusters=state["n_clusters"])
+        q.centroids = np.asarray(state["centroids"], np.float32)
+        return q
