@@ -94,3 +94,13 @@ def decode_ids(data: bytes) -> List[str]:
     return ids
 
 
+def encode_vectors(vectors: np.ndarray) -> bytes:
+    v = np.ascontiguousarray(vectors, dtype=np.float32)
+    return struct.pack("<II", v.shape[0], v.shape[1]) + v.tobytes()
+
+
+def decode_vectors(data: bytes) -> np.ndarray:
+    rows, dim = struct.unpack("<II", data[:8])
+    return np.frombuffer(data, dtype=np.float32, offset=8, count=rows * dim).reshape(rows, dim).copy()
+
+
