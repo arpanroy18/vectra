@@ -104,3 +104,18 @@ def decode_vectors(data: bytes) -> np.ndarray:
     return np.frombuffer(data, dtype=np.float32, offset=8, count=rows * dim).reshape(rows, dim).copy()
 
 
+def load_vectors_mmap(path: str, header: Header) -> np.ndarray:
+    """Memory-map the vector section; returns a read-only (rows, dim) array."""
+    off, _ = header["vectors"]
+    rows, dim = struct.unpack("<II", np.memmap(path, dtype=np.uint8, mode="r",
+                                             offset=off, shape=(8,)).tobytes()[:8])
+    return np.memmap(path, dtype=np.float32, mode="r", offset=off + 8,
+                     shape=(rows, dim))
+
+
+def encode_json(obj) -> bytes:
+    return json.dumps(obj).encode("utf-8")
+
+
+def decode_json(data: bytes):
+    return json.loads(data)
