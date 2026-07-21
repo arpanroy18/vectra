@@ -38,3 +38,53 @@ def recall(results, truths, ids):
     return hits / tot
 
 
+def main() -> None:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--n", type=int, default=20000)
+    ap.add_argument("--dim", type=int, default=384)
+    ap.add_argument("--queries", type=int, default=200)
+    ap.add_argument("--k", type=int, default=10)
+    args = ap.parse_args()
+
+    rng = np.random.default_rng(0)
+    # clustered data is more representative than pure noise
+    centers = rng.normal(size=(64, args.dim)).astype(np.float32)
+    vecs = centers[rng.integers(0, 64, args.n)] + 0.15 * rng.normal(
+        size=(args.n, args.dim)).astype(np.float32)
+    queries = centers[rng.integers(0, 64, args.queries)] + 0.15 * rng.normal(
+        size=(args.queries, args.dim)).astype(np.float32)
+    ids = [f"v{i}" for i in range(args.n)]
+
+    print(f"dataset: {args.n}x{args.dim}, {args.queries} queries, k={args.k}")
+
+    print("computing exact ground truth ...")
+    truth = np.stack([exact_topk(vecs, q, args.k, "cosine") for q in queries])
+
+    rows = []
+    for name, kw in [
+        ("flat",          dict(index="flat")),
+        ("hnsw",          dict(index="hnsw", M=16, ef_construction=200)),
+        ("hnsw+scalar",   dict(index="hnsw", quantization="scalar")),
+        ("hnsw+pq",       dict(index="hnsw", quantization="product",
+                               n_sub=8, n_clusters=64)),
+    ]:
+        tracemalloc.start()
+        t0 = time.time()
+        idx = VectorIndex(args.dim, metric="cosine", seed=0, **kw)
+        idx.add(ids, vecs)
+        build_t = time.time() - t0
+        _, peak = tracemalloc.get_traced_memory()
+        tracemalloc.stop()
+        results, qps, p50, p99 = bench(idx, queries, args.k)
+        rows.append((name, qps, p50, p99, recall(results, truth, ids),
+                     build_t, peak / 1e6))
+
+    print(f"\n{'config':<14}{'QPS':>9}{'p50 ms':>9}{'p99 ms':>9}"
+          f"{'recall':>9}{'build s':>9}{'MB (py)':>10}")
+    for name, qps, p50, p99, rec, bt, mem in rows:
+        print(f"{name:<14}{qps:>9.0f}{p50:>9.2f}{p99:>9.2f}{rec:>9.3f}"
+              f"{bt:>9.1f}{mem:>10.1f}")
+
+
+if __name__ == "__main__":
+    main()
