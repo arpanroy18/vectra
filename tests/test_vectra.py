@@ -29,3 +29,27 @@ def test_bad_metric_raises():
         distance.distance("manhattan", np.zeros(4), np.zeros((2, 4)))
 
 
+# ---- flat index ------------------------------------------------------------
+
+def test_flat_exact_topk():
+    vecs = make()
+    idx = VectorIndex(DIM, metric="l2", index="flat")
+    idx.add([f"v{i}" for i in range(len(vecs))], vecs)
+    q = vecs[7]
+    res = idx.search(q, k=5)
+    assert res[0][0] == "v7"
+    truth = {f"v{r}" for r in exact_topk(vecs, q, 5, "l2")}
+    assert {r[0] for r in res} == truth
+
+
+def test_flat_sorted_and_duplicate_ids():
+    vecs = make(20)
+    idx = VectorIndex(DIM)
+    idx.add(["a", "b"], vecs[:2])
+    with pytest.raises(ValueError):
+        idx.add(["a"], vecs[2:3])
+    res = idx.search(vecs[10], k=10)
+    ds = [d for _, d in res]
+    assert ds == sorted(ds)
+
+
