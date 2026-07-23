@@ -142,3 +142,18 @@ def test_mmap_load(tmp_path):
     assert res[0][0] == "v3"
 
 
+# ---- metadata --------------------------------------------------------------
+
+def test_metadata_filter_and_callable():
+    vecs = make(200)
+    idx = VectorIndex(DIM, metric="l2")
+    idx.add([f"v{i}" for i in range(200)], vecs,
+            metadata=[{"year": 2020 + i % 5, "lang": "en" if i % 2 else "fr"}
+                      for i in range(200)])
+    res = idx.search(vecs[0], k=200, filter={"year": 2022, "lang": "en"})
+    assert res and all(int(r[0][1:]) % 5 == 2 and int(r[0][1:]) % 2 == 1
+                       for r in res)
+    res2 = idx.search(vecs[0], k=50, filter={"year": lambda y: y and y >= 2023})
+    assert all(int(r[0][1:]) % 5 >= 3 for r in res2)
+
+
