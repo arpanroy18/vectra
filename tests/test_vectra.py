@@ -70,3 +70,44 @@ def test_delete_and_rebuild():
         assert res2[0][0] == "v5"
 
 
+# ---- HNSW ------------------------------------------------------------------
+
+def test_hnsw_high_recall():
+    vecs = make(1200)
+    idx = VectorIndex(DIM, metric="l2", index="hnsw", M=16,
+                      ef_construction=200, seed=1)
+    idx.add([f"v{i}" for i in range(len(vecs))], vecs)
+    queries = make(30, seed=9)
+    recs = []
+    for q in queries:
+        res = idx.search(q, k=10, ef_search=200)
+        truth = {f"v{r}" for r in exact_topk(vecs, q, 10, "l2")}
+        recs.append(len({r[0] for r in res} & truth) / 10)
+    assert np.mean(recs) > 0.95
+
+
+def test_hnsw_self_query_finds_self():
+    vecs = make(300)
+    idx = VectorIndex(DIM, index="hnsw", metric="cosine", seed=2)
+    idx.add([f"v{i}" for i in range(300)], vecs)
+    for i in [0, 100, 299]:
+        assert idx.search(vecs[i], k=1)[0][0] == f"v{i}"
+
+
+def test_hnsw_ef_tradeoff_monotoneish():
+    vecs = make(800)
+    idx = VectorIndex(DIM, index="hnsw", metric="l2", seed=3)
+    idx.add([f"v{i}" for i in range(800)], vecs)
+    qs = make(20, seed=5)
+
+    def recall(ef):
+        s = 0
+        for q in qs:
+            res = idx.search(q, k=10, ef_search=ef)
+            truth = {f"v{r}" for r in exact_topk(vecs, q, 10, "l2")}
+            s += len({r[0] for r in res} & truth)
+        return s / (20 * 10)
+
+    assert recall(200) >= recall(10) - 0.05
+
+
