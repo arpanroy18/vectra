@@ -53,3 +53,20 @@ def test_flat_sorted_and_duplicate_ids():
     assert ds == sorted(ds)
 
 
+# ---- deletion / rebuild ----------------------------------------------------
+
+def test_delete_and_rebuild():
+    vecs = make(200)
+    for index in ("flat", "hnsw"):
+        idx = VectorIndex(DIM, index=index, metric="l2")
+        idx.add([f"v{i}" for i in range(200)], vecs)
+        assert idx.delete(["v0", "v1", "nope"]) == 2
+        assert len(idx) == 198
+        res = idx.search(vecs[0], k=3)
+        assert "v0" not in {r[0] for r in res}
+        idx.rebuild()
+        assert len(idx) == 198 and len(idx.ids) == 198
+        res2 = idx.search(vecs[5], k=3)
+        assert res2[0][0] == "v5"
+
+
