@@ -192,3 +192,13 @@ def test_quantized_index_search(tmp_path):
         assert idx2.search(vecs[10], k=5)
 
 
+# ---- async / batch ---------------------------------------------------------
+
+async def test_async_and_batch_search():
+    vecs = make(200)
+    idx = VectorIndex(DIM, metric="l2")
+    idx.add([f"v{i}" for i in range(200)], vecs)
+    res = await idx.search_async(vecs[9], k=3)
+    assert res[0][0] == "v9"
+    batch = idx.search_batch(vecs[:10], k=3)
+    assert len(batch) == 10 and batch[4][0][0] == "v4"
