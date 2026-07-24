@@ -24,6 +24,26 @@ index = VectorIndex.load("index.vdb")
 index = VectorIndex.mmap("index.vdb")        # low-memory, memory-mapped flat search
 ```
 
+## Architecture
+
+```mermaid
+flowchart TD
+    Q[query vector] --> VI[VectorIndex]
+    VI -->|index='flat'| F[exact brute force<br/>full distance matrix → top-k]
+    VI -->|index='hnsw'| H[HNSW graph]
+    H --> LS[greedy descent<br/>layers L → 1]
+    LS --> BS[best-first beam search<br/>layer 0, width = ef_search]
+    VI --> M[(MetadataStore<br/>field → value → rows<br/>inverted index)]
+    VI --> QU[Quantizer<br/>scalar uint8 / product codes]
+    VI --> ST[(.vdb storage<br/>sectioned binary + mmap)]
+    F --> R["top-k (id, distance) results"]
+    BS --> R
+```
+
+The HNSW graph is a stack of sparse graphs — each node appears on every layer
+up to a randomly drawn level. Search greedy-descends the sparse top layers,
+then runs a beam search on the dense bottom layer.
+
 ## Features
 
 | Area | What you get |
