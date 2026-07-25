@@ -76,6 +76,18 @@ vectra inspect index.vdb
 vectra benchmark index.vdb --queries queries.npy --ground-truth truth.npy --k 10
 ```
 
+## Demo
+
+```bash
+PYTHONPATH=. python3 examples/demo.py
+```
+
+Walks through the whole library: HNSW build over 5,000 clustered embeddings,
+top-k and metadata-filtered search, the `ef_search` recall/latency tradeoff,
+scalar quantization sizes, `.vdb` save/load/mmap, and batch + async search.
+
+![vectra demo](examples/demo.gif)
+
 ## Development
 
 ```bash
