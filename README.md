@@ -5,6 +5,8 @@ and HNSW approximate nearest-neighbour search, a custom memory-mapped
 on-disk format, metadata filtering, and scalar/product quantization. No FAISS,
 no ANN wrappers: the indexing and search algorithms are implemented here.
 
+![vectra demo](examples/demo.gif)
+
 ```python
 from vectra import VectorIndex
 
@@ -85,8 +87,6 @@ PYTHONPATH=. python3 examples/demo.py
 Walks through the whole library: HNSW build over 5,000 clustered embeddings,
 top-k and metadata-filtered search, the `ef_search` recall/latency tradeoff,
 scalar quantization sizes, `.vdb` save/load/mmap, and batch + async search.
-
-![vectra demo](examples/demo.gif)
 
 ## Development
 
