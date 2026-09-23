@@ -28,3 +28,12 @@ def cosine(query: np.ndarray, matrix: np.ndarray) -> np.ndarray:
     return 1.0 - mn @ qn
 
 
+def l2(query: np.ndarray, matrix: np.ndarray) -> np.ndarray:
+    """Euclidean distance."""
+    q = np.asarray(query, dtype=np.float32)
+    m = _as_rows(matrix)
+    # ||q-x||^2 = ||q||^2 + ||x||^2 - 2 q.x ; keep sqrt for a true metric.
+    d2 = np.sum(m * m, axis=1) + float(q @ q) - 2.0 * (m @ q)
+    return np.sqrt(np.maximum(d2, 0.0))
+
+
