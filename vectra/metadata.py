@@ -67,3 +67,14 @@ class MetadataStore:
             rows = {r for r in rows if pred((self._docs[r] or {}).get(field))}
         return rows
 
+    # --- serialization -----------------------------------------------------
+
+    def to_json(self) -> bytes:
+        return json.dumps(self._docs).encode("utf-8")
+
+    @classmethod
+    def from_json(cls, data: bytes) -> "MetadataStore":
+        store = cls()
+        for row, doc in enumerate(json.loads(data)):
+            store.add(row, doc)
+        return store
