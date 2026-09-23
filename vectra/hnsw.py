@@ -167,3 +167,30 @@ class HNSW:
         out.sort()
         return out
 
+    def _select(self, q: np.ndarray, cands: List[Tuple[float, int]], maxM: int, layer: int) -> List[int]:
+        """Neighbour selection.
+
+        With ``select_heuristic`` (default) use the paper's diversity rule:
+        keep a candidate only if it is closer to the query than to every
+        already-picked neighbour — this keeps long-range edges. Otherwise take
+        the ``maxM`` closest candidates.
+        """
+        if not self.select_heuristic:
+            return [r for _, r in cands[:maxM]]
+        picked: List[Tuple[float, int]] = []
+        for d, r in sorted(cands):
+            if len(picked) >= maxM:
+                break
+            d_to_picked = self._dists(self.vectors[r], [p for _, p in picked])
+            if all(d <= float(dp) for dp in d_to_picked):
+                picked.append((d, r))
+        if len(picked) < maxM:  # heuristic under-filled; top up with nearest
+            chosen = {r for _, r in picked}
+            for d, r in sorted(cands):
+                if len(picked) >= maxM:
+                    break
+                if r not in chosen:
+                    picked.append((d, r))
+                    chosen.add(r)
+        return [r for _, r in picked]
+
