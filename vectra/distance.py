@@ -37,3 +37,13 @@ def l2(query: np.ndarray, matrix: np.ndarray) -> np.ndarray:
     return np.sqrt(np.maximum(d2, 0.0))
 
 
+def dot(query: np.ndarray, matrix: np.ndarray) -> np.ndarray:
+    """Negative dot product so that smaller is better."""
+    q = np.asarray(query, dtype=np.float32)
+    m = _as_rows(matrix)
+    return -(m @ q)
+
+
+_METRICS = {"cosine": cosine, "l2": l2, "dot": dot}
+
+
