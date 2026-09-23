@@ -45,3 +45,25 @@ class MetadataStore:
                 self._index[field][value].discard(row)
         self._docs[row] = None
 
+    def match_rows(self, flt: Optional[Filter]) -> Optional[Set[int]]:
+        """Rows matching the filter, or None when no filter is given.
+
+        Scalar equality terms use the inverted index; callable terms and
+        fields absent from the index fall back to scanning the matched set.
+        """
+        if not flt:
+            return None
+        rows: Optional[Set[int]] = None
+        deferred: List[tuple] = []
+        for field, expected in flt.items():
+            if callable(expected):
+                deferred.append((field, expected))
+                continue
+            bucket = set(self._index.get(field, {}).get(expected, ()))
+            rows = bucket if rows is None else rows & bucket
+        if rows is None:
+            rows = {r for r, d in enumerate(self._docs) if d is not None}
+        for field, pred in deferred:
+            rows = {r for r in rows if pred((self._docs[r] or {}).get(field))}
+        return rows
+
