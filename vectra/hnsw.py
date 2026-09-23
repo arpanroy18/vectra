@@ -227,3 +227,25 @@ class HNSW:
             new.add(i, self.vectors[r])
         return new
 
+    # --------------------------------------------------------- serialization
+
+    def graph_state(self) -> Dict:
+        return {
+            "levels": self.levels,
+            "links": [[list(l) for l in row] for row in self.links],
+            "alive": self._alive[: len(self.levels)].tolist(),
+            "entry": self.entry,
+            "max_level": self.max_level,
+            "M": self.M,
+            "ef_construction": self.ef_construction,
+            "metric": self.metric,
+            "select_heuristic": self.select_heuristic,
+        }
+
+    def load_graph_state(self, state: Dict) -> None:
+        self.levels = list(state["levels"])
+        self.links = [[list(map(int, l)) for l in row] for row in state["links"]]
+        n = len(self.levels)
+        self._alive = np.zeros(len(self.vectors), bool)
+        self._alive[:n] = np.asarray(state["alive"], bool)
+        self.entry, self.max_level = int(state["entry"]), int(state["max_level"])
