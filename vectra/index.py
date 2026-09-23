@@ -78,3 +78,14 @@ class VectorIndex:
             self._graph = HNSW(dimension, metric, M=M,
                                ef_construction=ef_construction, seed=seed)
 
+    # ------------------------------------------------------------------ meta
+
+    def __len__(self) -> int:
+        return int(self._alive.sum())
+
+    def __contains__(self, id: str) -> bool:
+        return id in self._row_of
+
+    def get(self, id: str) -> np.ndarray:
+        return self.vectors[self._row_of[id]].copy()
+
