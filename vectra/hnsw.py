@@ -119,3 +119,19 @@ class HNSW:
             self.entry, self.max_level = row, level
         return level
 
+    # --------------------------------------------------------------- search
+
+    def _greedy_layer(self, q: np.ndarray, ep: int, layer: int) -> int:
+        best, best_d = ep, self._dist(q, ep)
+        improved = True
+        while improved:
+            improved = False
+            nbs = [nb for nb in self.links[best][layer] if self._alive[nb]]
+            if not nbs:
+                break
+            for nb, d in zip(nbs, self._dists(q, nbs)):
+                if d < best_d:
+                    best, best_d = nb, float(d)
+                    improved = True
+        return best
+
