@@ -51,3 +51,26 @@ class HNSW:
         self.entry: int = -1
         self.max_level: int = -1
 
+    # ------------------------------------------------------------------ util
+
+    def __len__(self) -> int:
+        return int(self._alive.sum())
+
+    @property
+    def capacity(self) -> int:
+        return len(self.vectors)
+
+    def _dist(self, q: np.ndarray, row: int) -> float:
+        return dist.pairwise(self.metric, q, self.vectors[row])
+
+    def _dists(self, q: np.ndarray, rows: Sequence[int]) -> np.ndarray:
+        return dist.distance(self.metric, q, self.vectors[np.asarray(rows, dtype=np.int64)])
+
+    def _grow(self, n: int) -> None:
+        add = n - len(self.vectors)
+        if add <= 0:
+            return
+        cap = max(64, 1 << max(int(math.ceil(math.log2(n))), 6))
+        self.vectors = np.vstack([self.vectors, np.zeros((cap - len(self.vectors), self.dim), np.float32)])
+        self._alive = np.concatenate([self._alive, np.zeros(cap - len(self._alive), bool)])
+
