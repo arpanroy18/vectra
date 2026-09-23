@@ -74,3 +74,48 @@ class HNSW:
         self.vectors = np.vstack([self.vectors, np.zeros((cap - len(self.vectors), self.dim), np.float32)])
         self._alive = np.concatenate([self._alive, np.zeros(cap - len(self._alive), bool)])
 
+    # ------------------------------------------------------------- insertion
+
+    def add(self, row: int, vector: np.ndarray) -> int:
+        """Insert ``vector`` as graph node ``row``. Returns the assigned level."""
+        self._grow(row + 1)
+        self.vectors[row] = vector
+        self._alive[row] = True
+        level = _level_for(self._rng, self.level_mult)
+        self.levels.append(level)
+        self.links.append([[] for _ in range(level + 1)])
+
+        if self.entry == -1:
+            self.entry, self.max_level = row, level
+            return level
+
+        ep = self.entry
+        # Greedy descent on layers above the new node's top.
+        for layer in range(self.max_level, level, -1):
+            ep = self._greedy_layer(vector, ep, layer)
+
+        for layer in range(min(level, self.max_level), -1, -1):
+            cands = self._search_layer(vector, [ep], self.ef_construction, layer)
+            maxM = self.maxM0 if layer == 0 else self.M
+            neighbours = self._select(vector, cands, maxM, layer)
+            self.links[row][layer] = neighbours
+            for nb in neighbours:
+                nbs = self.links[nb][layer]
+                if len(nbs) < maxM:
+                    nbs.append(row)
+                else:
+                    # Re-select including the new node, keeping the best maxM.
+                    merged = nbs + [row]
+                    self.links[nb][layer] = self._select(
+                        self.vectors[nb],
+                        [(self._dist(self.vectors[nb], r), r) for r in merged],
+                        maxM,
+                        layer,
+                    )
+            if cands:
+                ep = min(cands)[1]
+
+        if level > self.max_level:
+            self.entry, self.max_level = row, level
+        return level
+
