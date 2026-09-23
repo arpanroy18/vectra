@@ -47,3 +47,14 @@ def dot(query: np.ndarray, matrix: np.ndarray) -> np.ndarray:
 _METRICS = {"cosine": cosine, "l2": l2, "dot": dot}
 
 
+def distance(metric: Metric, query: np.ndarray, matrix: np.ndarray) -> np.ndarray:
+    try:
+        fn = _METRICS[metric]
+    except KeyError:
+        raise ValueError(f"unknown metric {metric!r}; expected one of {sorted(_METRICS)}")
+    return fn(query, matrix)
+
+
+def pairwise(metric: Metric, a: np.ndarray, b: np.ndarray) -> float:
+    """Distance between two single vectors."""
+    return float(distance(metric, a, b.reshape(1, -1))[0])
