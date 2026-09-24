@@ -196,3 +196,6 @@ class VectorIndex:
         return await asyncio.get_event_loop().run_in_executor(
             _EXECUTOR, lambda: self.search(query, k, **kw))
 
+    def search_batch(self, queries: np.ndarray, k: int = 10, **kw) -> List[List[SearchResult]]:
+        return list(_EXECUTOR.map(lambda q: self.search(q, k, **kw), queries))
+
