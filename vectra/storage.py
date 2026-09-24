@@ -74,3 +74,23 @@ def read_section(f: BinaryIO, header: Header, name: str) -> bytes:
     return f.read(length)
 
 
+def encode_ids(ids: List[str]) -> bytes:
+    out = io.BytesIO()
+    blobs = [i.encode("utf-8") for i in ids]
+    out.write(struct.pack("<I", len(blobs)))
+    for b in blobs:
+        out.write(struct.pack("<I", len(b)))
+        out.write(b)
+    return out.getvalue()
+
+
+def decode_ids(data: bytes) -> List[str]:
+    bio = io.BytesIO(data)
+    (count,) = struct.unpack("<I", bio.read(4))
+    ids = []
+    for _ in range(count):
+        (l,) = struct.unpack("<I", bio.read(4))
+        ids.append(bio.read(l).decode("utf-8"))
+    return ids
+
+
