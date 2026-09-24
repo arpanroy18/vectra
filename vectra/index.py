@@ -199,3 +199,41 @@ class VectorIndex:
     def search_batch(self, queries: np.ndarray, k: int = 10, **kw) -> List[List[SearchResult]]:
         return list(_EXECUTOR.map(lambda q: self.search(q, k, **kw), queries))
 
+    # -------------------------------------------------------------- deletion
+
+    def delete(self, ids: Sequence[str]) -> int:
+        """Remove ids (lazy deletion for HNSW). Returns the count removed."""
+        removed = 0
+        for id_ in ids:
+            row = self._row_of.pop(id_, None)
+            if row is None:
+                continue
+            self._alive[row] = False
+            self.metadata.remove(row)
+            if self._graph is not None:
+                self._graph.mark_deleted(row)
+            removed += 1
+        return removed
+
+    def rebuild(self) -> None:
+        """Compact the index, physically dropping deleted vectors."""
+        keep = [r for r in range(len(self.ids)) if self._alive[r]]
+        if len(keep) == len(self.ids):
+            return
+        self.ids = [self.ids[r] for r in keep]
+        self.vectors[: len(keep)] = self.vectors[keep]
+        self._alive = np.zeros(len(self.vectors), bool)
+        self._alive[: len(keep)] = True
+        self._row_of = {id_: i for i, id_ in enumerate(self.ids)}
+        if self.codes is not None:
+            self.codes = self.codes[keep]
+        docs = [self.metadata.get(r) for r in keep]
+        self.metadata = MetadataStore()
+        for i, doc in enumerate(docs):
+            self.metadata.add(i, doc)
+        if self._graph is not None:
+            g = HNSW(self.dim, self.metric, seed=self.seed, **self._hnsw_args)
+            for i in range(len(keep)):
+                g.add(i, self.vectors[i])
+            self._graph = g
+
