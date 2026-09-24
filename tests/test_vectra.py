@@ -111,3 +111,34 @@ def test_hnsw_ef_tradeoff_monotoneish():
     assert recall(200) >= recall(10) - 0.05
 
 
+# ---- persistence -----------------------------------------------------------
+
+@pytest.mark.parametrize("index", ["flat", "hnsw"])
+def test_save_load_roundtrip(tmp_path, index):
+    vecs = make(300)
+    idx = VectorIndex(DIM, index=index, metric="cosine", seed=4)
+    idx.add([f"v{i}" for i in range(300)], vecs,
+            metadata=[{"cat": i % 3} for i in range(300)])
+    p = str(tmp_path / "i.vdb")
+    idx.save(p)
+    idx2 = VectorIndex.load(p)
+    assert len(idx2) == 300 and idx2.metric == "cosine"
+    q = vecs[42]
+    assert idx.search(q, k=5) == idx2.search(q, k=5)
+    assert idx2.get("v42") == pytest.approx(vecs[42])
+    res = idx2.search(q, k=5, filter={"cat": 0})
+    assert all(int(r[0][1:]) % 3 == 0 for r in res)
+
+
+def test_mmap_load(tmp_path):
+    vecs = make(200)
+    idx = VectorIndex(DIM, metric="l2")
+    idx.add([f"v{i}" for i in range(200)], vecs)
+    p = str(tmp_path / "i.vdb")
+    idx.save(p)
+    mi = VectorIndex.mmap(p)
+    assert not mi.vectors.flags.writeable  # read-only memmap
+    res = mi.search(vecs[3], k=4)
+    assert res[0][0] == "v3"
+
+
