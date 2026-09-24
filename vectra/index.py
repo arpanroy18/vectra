@@ -262,3 +262,54 @@ class VectorIndex:
         storage.write(path, sections)
 
     @classmethod
+    def load(cls, path: str) -> "VectorIndex":
+        header, f = storage.read_sections(path)
+        cfg = storage.decode_json(storage.read_section(f, header, "config"))
+        idx = cls(cfg["dimension"], metric=cfg["metric"], index=cfg["index"],
+                  ef_search=cfg["ef_search"], quantization=cfg["quantization"],
+                  n_sub=cfg.get("n_sub", 8), n_clusters=cfg.get("n_clusters", 256),
+                  M=cfg.get("M", 16), ef_construction=cfg.get("ef_construction", 200),
+                  seed=cfg.get("seed"))
+        idx.ids = storage.decode_ids(storage.read_section(f, header, "ids"))
+        idx._row_of = {id_: i for i, id_ in enumerate(idx.ids)}
+        idx.vectors = storage.decode_vectors(storage.read_section(f, header, "vectors"))
+        n = len(idx.ids)
+        alive = np.unpackbits(np.frombuffer(storage.read_section(f, header, "alive"),
+                                          np.uint8))[:n]
+        idx._alive = np.zeros(len(idx.vectors), bool)
+        idx._alive[:n] = alive.astype(bool)
+        idx.metadata = MetadataStore.from_json(storage.read_section(f, header, "metadata"))
+        if "codes" in header:
+            raw = np.frombuffer(storage.read_section(f, header, "codes"), np.uint8)
+            q = storage.decode_json(storage.read_section(f, header, "quantizer"))
+            if q["kind"] == "scalar":
+                idx._quantizer = ScalarQuantizer.from_state(idx.dim, q["state"])
+                idx.codes = raw.reshape(n, idx.dim)
+            else:
+                idx._quantizer = ProductQuantizer.from_state(idx.dim, q["state"])
+                idx.codes = raw.reshape(n, idx._quantizer.n_sub)
+        if "hnsw" in header and idx._graph is not None:
+            idx._graph.vectors = idx.vectors
+            idx._graph.load_graph_state(
+                storage.decode_json(storage.read_section(f, header, "hnsw")))
+        f.close()
+        return idx
+
+    @classmethod
+    def mmap(cls, path: str) -> "VectorIndex":
+        """Load an index with its vector block memory-mapped (flat search)."""
+        header, f = storage.read_sections(path)
+        cfg = storage.decode_json(storage.read_section(f, header, "config"))
+        idx = cls(cfg["dimension"], metric=cfg["metric"], index="flat",
+                  quantization=cfg["quantization"])
+        idx.ids = storage.decode_ids(storage.read_section(f, header, "ids"))
+        idx._row_of = {id_: i for i, id_ in enumerate(idx.ids)}
+        idx.vectors = storage.load_vectors_mmap(path, header)
+        n = len(idx.ids)
+        alive = np.unpackbits(np.frombuffer(storage.read_section(f, header, "alive"),
+                                          np.uint8))[:n]
+        idx._alive = np.zeros(n, bool)
+        idx._alive[:n] = alive.astype(bool)
+        idx.metadata = MetadataStore.from_json(storage.read_section(f, header, "metadata"))
+        f.close()
+        return idx
