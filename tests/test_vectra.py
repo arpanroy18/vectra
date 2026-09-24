@@ -157,3 +157,38 @@ def test_metadata_filter_and_callable():
     assert all(int(r[0][1:]) % 5 >= 3 for r in res2)
 
 
+# ---- quantization ----------------------------------------------------------
+
+def test_scalar_quantizer_roundtrip_shape():
+    vecs = make(100)
+    q = ScalarQuantizer(DIM).fit(vecs)
+    codes = q.transform(vecs)
+    assert codes.dtype == np.uint8 and codes.shape == (100, DIM)
+    dec = q.inverse(codes)
+    assert np.abs(dec - vecs).max() < 0.2  # bounded quantization error
+
+
+def test_product_quantizer():
+    vecs = make(400, dim=32)
+    q = ProductQuantizer(32, n_sub=8, n_clusters=16, seed=0).fit(vecs)
+    codes = q.transform(vecs)
+    assert codes.shape == (400, 8) and codes.max() < 16
+    dec = q.inverse(codes)
+    assert np.linalg.norm(dec - vecs, axis=1).mean() < np.linalg.norm(vecs, axis=1).mean()
+
+
+def test_quantized_index_search(tmp_path):
+    vecs = make(500)
+    for quant in ("scalar", "product"):
+        idx = VectorIndex(DIM, metric="l2", quantization=quant,
+                          n_sub=8, n_clusters=32)
+        idx.add([f"v{i}" for i in range(500)], vecs)
+        res = idx.search(vecs[10], k=5)
+        assert len(res) == 5
+        p = str(tmp_path / f"{quant}.vdb")
+        idx.save(p)
+        idx2 = VectorIndex.load(p)
+        assert idx2.codes is not None
+        assert idx2.search(vecs[10], k=5)
+
+
