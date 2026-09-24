@@ -109,3 +109,51 @@ class VectorIndex:
             self._quantizer = ProductQuantizer(self.dim, seed=self.seed,
                                                **self._pq_args).fit(v)
 
+    def add(
+        self,
+        ids: Sequence[str],
+        vectors: np.ndarray,
+        metadata: Optional[Sequence[Optional[Dict[str, Any]]]] = None,
+    ) -> None:
+        """Batch insert. ``ids`` must be unique within the call and the index."""
+        v = self._check(vectors)
+        ids = list(ids)
+        if len(ids) != len(v):
+            raise ValueError("ids and vectors must have equal length")
+        if len(set(ids)) != len(ids):
+            raise ValueError("duplicate ids in batch")
+        overlap = set(ids) & self._row_of.keys()
+        if overlap:
+            raise ValueError(f"ids already present: {sorted(overlap)[:5]}")
+        metadata = metadata or [None] * len(ids)
+        if len(metadata) != len(ids):
+            raise ValueError("metadata length must match ids")
+
+        self._fit_quantizer(v)
+        if self._quantizer is not None:
+            new_codes = self._quantizer.transform(v)
+            stored = self._quantizer.inverse(new_codes)
+            self.codes = new_codes if self.codes is None else np.vstack([self.codes, new_codes])
+        else:
+            stored = v
+
+        start = len(self.ids)
+        need = start + len(ids)
+        if need > len(self.vectors):
+            cap = max(64, 1 << int(math.ceil(math.log2(need))))
+            grown = np.zeros((cap, self.dim), np.float32)
+            grown[: len(self.ids)] = self.vectors[: len(self.ids)]
+            self.vectors = grown
+            self._alive = np.concatenate(
+                [self._alive, np.zeros(cap - len(self._alive), bool)])
+        self.vectors[start:need] = stored
+        self._alive[start:need] = True
+
+        for i, (id_, meta) in enumerate(zip(ids, metadata)):
+            row = start + i
+            self.ids.append(id_)
+            self._row_of[id_] = row
+            self.metadata.add(row, meta)
+            if self._graph is not None:
+                self._graph.add(row, self.vectors[row])
+
