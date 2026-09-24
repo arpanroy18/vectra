@@ -43,3 +43,62 @@ def _cmd_inspect(args) -> int:
     return 0
 
 
+def _cmd_benchmark(args) -> int:
+    from .index import VectorIndex
+    from .flat import recall_at_k
+    idx = VectorIndex.load(args.index)
+    queries = np.load(args.queries).astype(np.float32)
+    truth = None
+    if args.ground_truth:
+        # .npy of shape (n_queries, k) holding true-neighbour row indices
+        truth_rows = np.load(args.ground_truth)
+        truth = [{idx.ids[int(r)] for r in row} for row in truth_rows]
+    lat = []
+    t0 = time.time()
+    results = []
+    for q in queries:
+        s = time.perf_counter()
+        results.append(idx.search(q, k=args.k))
+        lat.append((time.perf_counter() - s) * 1e3)
+    total = time.time() - t0
+    lat = np.asarray(lat)
+    print(f"queries: {len(queries)}  k={args.k}")
+    print(f"QPS:     {len(queries) / total:.0f}")
+    print(f"p50:     {np.percentile(lat, 50):.2f}ms   p99: {np.percentile(lat, 99):.2f}ms")
+    if truth is not None:
+        rec = recall_at_k(results, truth)
+        print(f"recall@{args.k}: {rec:.4f}")
+    return 0
+
+
+def main(argv=None) -> int:
+    p = argparse.ArgumentParser(prog="vectra")
+    sub = p.add_subparsers(dest="cmd", required=True)
+
+    b = sub.add_parser("build", help="build an index from an .npy matrix")
+    b.add_argument("embeddings")
+    b.add_argument("-o", "--output", default="index.vdb")
+    b.add_argument("--index", choices=["flat", "hnsw"], default="hnsw")
+    b.add_argument("--metric", choices=["cosine", "l2", "dot"], default="cosine")
+    b.add_argument("--quantization", choices=["scalar", "product"], default=None)
+    b.add_argument("--M", type=int, default=16)
+    b.add_argument("--ef-construction", type=int, default=200)
+    b.set_defaults(fn=_cmd_build)
+
+    i = sub.add_parser("inspect", help="print index stats")
+    i.add_argument("index")
+    i.set_defaults(fn=_cmd_inspect)
+
+    m = sub.add_parser("benchmark", help="measure QPS/latency (and recall with ground truth)")
+    m.add_argument("index")
+    m.add_argument("--queries", required=True)
+    m.add_argument("--ground-truth")
+    m.add_argument("--k", type=int, default=10)
+    m.set_defaults(fn=_cmd_benchmark)
+
+    args = p.parse_args(argv)
+    return args.fn(args)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
