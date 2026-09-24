@@ -89,3 +89,23 @@ class VectorIndex:
     def get(self, id: str) -> np.ndarray:
         return self.vectors[self._row_of[id]].copy()
 
+    # ------------------------------------------------------------------- add
+
+    def _check(self, vectors: np.ndarray) -> np.ndarray:
+        v = np.asarray(vectors, dtype=np.float32)
+        if v.ndim == 1:
+            v = v.reshape(1, -1)
+        if v.shape[1] != self.dim:
+            raise ValueError(f"expected {self.dim}-D vectors, got {v.shape[1]}-D")
+        return v
+
+    def _fit_quantizer(self, v: np.ndarray) -> None:
+        """Fit the quantizer once, on the first inserted batch."""
+        if self.quantization is None or self._quantizer is not None:
+            return
+        if self.quantization == "scalar":
+            self._quantizer = ScalarQuantizer(self.dim).fit(v)
+        else:
+            self._quantizer = ProductQuantizer(self.dim, seed=self.seed,
+                                               **self._pq_args).fit(v)
+
