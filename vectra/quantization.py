@@ -73,3 +73,23 @@ def _kmeans(x: np.ndarray, k: int, iters: int, rng: np.random.Generator) -> np.n
     return c
 
 
+class ProductQuantizer:
+    def __init__(self, dim: int, n_sub: int = 8, n_clusters: int = 256,
+                 iters: int = 25, seed: Optional[int] = 0) -> None:
+        if dim % n_sub != 0:
+            raise ValueError(f"dimension {dim} not divisible by n_sub={n_sub}")
+        self.dim, self.n_sub, self.n_clusters = dim, n_sub, n_clusters
+        self.sub_dim = dim // n_sub
+        self.iters, self.seed = iters, seed
+        self.centroids: Optional[np.ndarray] = None  # (n_sub, n_clusters, sub_dim)
+
+    def fit(self, vectors: np.ndarray) -> "ProductQuantizer":
+        v = np.asarray(vectors, np.float32)
+        rng = np.random.default_rng(self.seed)
+        self.centroids = np.stack([
+            _kmeans(v[:, s * self.sub_dim:(s + 1) * self.sub_dim],
+                    self.n_clusters, self.iters, rng)
+            for s in range(self.n_sub)
+        ])
+        return self
+
