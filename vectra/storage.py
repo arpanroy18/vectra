@@ -52,3 +52,25 @@ def write(path: str, sections: Dict[str, bytes]) -> None:
             f.write(payload)
 
 
+def read_sections(path: str) -> Tuple[Header, BinaryIO]:
+    f = open(path, "rb")
+    if f.read(4) != MAGIC:
+        raise ValueError(f"{path} is not a vectra index")
+    version, count = struct.unpack("<II", f.read(8))
+    if version != VERSION:
+        raise ValueError(f"unsupported format version {version}")
+    header: Header = {}
+    for _ in range(count):
+        (nlen,) = struct.unpack("<B", f.read(1))
+        name = f.read(nlen).decode()
+        off, length = struct.unpack("<QQ", f.read(16))
+        header[name] = (off, length)
+    return header, f
+
+
+def read_section(f: BinaryIO, header: Header, name: str) -> bytes:
+    off, length = header[name]
+    f.seek(off)
+    return f.read(length)
+
+
