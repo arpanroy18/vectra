@@ -24,6 +24,53 @@ index = VectorIndex.load("index.vdb")
 index = VectorIndex.mmap("index.vdb")        # low-memory, memory-mapped flat search
 ```
 
+## Architecture
+
+```mermaid
+flowchart TD
+    Q[query vector] --> VI[VectorIndex]
+    VI -->|index='flat'| F[exact brute force<br/>full distance matrix → top-k]
+    VI -->|index='hnsw'| H[HNSW graph]
+    H --> LS[greedy descent<br/>layers L → 1]
+    LS --> BS[best-first beam search<br/>layer 0, width = ef_search]
+    VI --> M[(MetadataStore<br/>field → value → rows<br/>inverted index)]
+    VI --> QU[Quantizer<br/>scalar uint8 / product codes]
+    VI --> ST[(.vdb storage<br/>sectioned binary + mmap)]
+    F --> R["top-k (id, distance) results"]
+    BS --> R
+```
+
+The HNSW graph is a stack of sparse graphs — each node appears on every layer
+up to a randomly drawn level. Search greedy-descends the sparse top layers,
+then runs a beam search on the dense bottom layer:
+
+```mermaid
+flowchart LR
+    subgraph L2[layer 2 - sparse]
+        A2[A] --- G2[G]
+    end
+    subgraph L1[layer 1]
+        A1[A] --- C1[C] --- F1[F] --- G1[G]
+    end
+    subgraph L0[layer 0 - dense]
+        A0[A]---B[B]---C0[C]---D[D]---E[E]---F0[F]---G0[G]---H[H]
+    end
+    L2 -.-> L1 -.-> L0
+```
+
+And the `.vdb` file layout:
+
+```mermaid
+flowchart TD
+    HD[header: magic + version + section table] --> CF[config: JSON]
+    CF --> ID[ids: utf-8 blobs]
+    ID --> VE[vectors: float32 block]
+    VE --> AL[alive bitmask]
+    AL --> MD[metadata: JSON]
+    MD --> CD[codes + quantizer state, optional]
+    CD --> GR[hnsw graph: JSON]
+```
+
 ## Features
 
 | Area | What you get |
