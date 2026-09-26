@@ -56,13 +56,22 @@ vectra inspect index.vdb
 vectra benchmark index.vdb --queries queries.npy --ground-truth truth.npy --k 10
 ```
 
+## Demo
+
+```bash
+PYTHONPATH=. python3 examples/demo.py
+```
+
+Walks through the whole library: HNSW build over 5,000 clustered embeddings,
+top-k and metadata-filtered search, the `ef_search` recall/latency tradeoff,
+scalar quantization sizes, `.vdb` save/load/mmap, and batch + async search.
+
 ## Development
 
 ```bash
-cd vectra
-pip install -e ".[dev]"
+pip install -e ".[dev]"   # or: PYTHONPATH=. to skip installing
 pytest
-python benchmarks/benchmark.py --n 20000 --dim 384
+python benchmarks/benchmark.py --n 3000 --dim 128
 ```
 
 ## Layout
