@@ -70,6 +70,8 @@ class VectorIndex:
         self._row_of: Dict[str, int] = {}
         self.metadata = MetadataStore()
         self.vectors = np.zeros((0, dimension), np.float32)   # decoded/original
+        # Working-space copy for flat search: L2-normalized for cosine.
+        self._w: Optional[np.ndarray] = None
         self.codes: Optional[np.ndarray] = None
         self._alive = np.zeros(0, bool)
         self._quantizer: Optional[object] = None
@@ -148,6 +150,12 @@ class VectorIndex:
                 [self._alive, np.zeros(cap - len(self._alive), bool)])
         self.vectors[start:need] = stored
         self._alive[start:need] = True
+        if self.metric == "cosine":
+            w = np.zeros((len(self.vectors), self.dim), np.float32)
+            w[:need] = dist.working(self.vectors[:need], self.metric)
+            self._w = w
+        else:
+            self._w = self.vectors
 
         for i, (id_, meta) in enumerate(zip(ids, metadata)):
             row = start + i
@@ -187,8 +195,12 @@ class VectorIndex:
         rows = np.nonzero(mask[: len(self.ids)])[0]
         if not len(rows):
             return []
-        d = dist.distance(self.metric, q, self.vectors[rows])
-        top = rows[np.argsort(d)[:k]]
+        qw = dist.working_query(q, self.metric)
+        d = dist.work_distance(self.metric, qw, self._w[rows])
+        # argpartition avoids a full sort when only k results are needed
+        kk = min(k, len(rows))
+        sel = np.argpartition(d, kk - 1)[:kk]
+        top = rows[sel[np.argsort(d[sel])]]
         return [(self.ids[r], float(dist.pairwise(self.metric, q, self.vectors[r])))
                 for r in top]
 
@@ -197,6 +209,21 @@ class VectorIndex:
             _EXECUTOR, lambda: self.search(query, k, **kw))
 
     def search_batch(self, queries: np.ndarray, k: int = 10, **kw) -> List[List[SearchResult]]:
+        # Vectorized fast path: unfiltered flat search is one big matmul.
+        if self._graph is None and not kw.get("filter"):
+            q = self._check(queries)
+            rows = np.nonzero(self._alive[: len(self.ids)])[0]
+            if not len(rows):
+                return [[] for _ in range(len(q))]
+            qw = dist.working(q, self.metric)
+            d = dist.work_distance(self.metric, qw, self._w[rows])
+            kk = min(k, len(rows))
+            part = np.argpartition(d, kk - 1, axis=1)[:, :kk]
+            out = []
+            for qi in range(len(q)):
+                sel = part[qi][np.argsort(d[qi, part[qi]])]
+                out.append([(self.ids[rows[r]], float(d[qi, r])) for r in sel])
+            return out
         return list(_EXECUTOR.map(lambda q: self.search(q, k, **kw), queries))
 
     # -------------------------------------------------------------- deletion
@@ -231,6 +258,8 @@ class VectorIndex:
         self.metadata = MetadataStore()
         for i, doc in enumerate(docs):
             self.metadata.add(i, doc)
+        self._w = (dist.working(self.vectors[: len(keep)], self.metric)
+                   if self.metric == "cosine" else self.vectors)
         if self._graph is not None:
             g = HNSW(self.dim, self.metric, seed=self.seed, **self._hnsw_args)
             for i in range(len(keep)):
@@ -273,6 +302,8 @@ class VectorIndex:
         idx.ids = storage.decode_ids(storage.read_section(f, header, "ids"))
         idx._row_of = {id_: i for i, id_ in enumerate(idx.ids)}
         idx.vectors = storage.decode_vectors(storage.read_section(f, header, "vectors"))
+        idx._w = (dist.working(idx.vectors, idx.metric)
+                  if idx.metric == "cosine" else idx.vectors)
         n = len(idx.ids)
         alive = np.unpackbits(np.frombuffer(storage.read_section(f, header, "alive"),
                                           np.uint8))[:n]
@@ -305,6 +336,8 @@ class VectorIndex:
         idx.ids = storage.decode_ids(storage.read_section(f, header, "ids"))
         idx._row_of = {id_: i for i, id_ in enumerate(idx.ids)}
         idx.vectors = storage.load_vectors_mmap(path, header)
+        idx._w = (dist.working(idx.vectors, idx.metric)
+                  if idx.metric == "cosine" else idx.vectors)
         n = len(idx.ids)
         alive = np.unpackbits(np.frombuffer(storage.read_section(f, header, "alive"),
                                           np.uint8))[:n]
