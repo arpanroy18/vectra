@@ -86,6 +86,8 @@ Walks through the whole library: HNSW build over 5,000 clustered embeddings,
 top-k and metadata-filtered search, the `ef_search` recall/latency tradeoff,
 scalar quantization sizes, `.vdb` save/load/mmap, and batch + async search.
 
+![vectra demo](examples/demo.gif)
+
 ## Development
 
 ```bash
