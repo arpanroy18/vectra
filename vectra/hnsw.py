@@ -12,7 +12,7 @@ from __future__ import annotations
 import heapq
 import math
 import random
-from typing import Callable, Dict, List, Optional, Sequence, Set, Tuple
+from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -45,6 +45,8 @@ class HNSW:
         self._rng = random.Random(seed)
 
         self.vectors = np.zeros((0, dim), dtype=np.float32)
+        # Working-space copy: L2-normalized for cosine, alias for l2/dot.
+        self._w = self.vectors if metric != "cosine" else np.zeros((0, dim), np.float32)
         self._alive = np.zeros(0, dtype=bool)
         self.levels: List[int] = []
         self.links: List[List[List[int]]] = []  # row -> layer -> neighbour rows
@@ -60,11 +62,15 @@ class HNSW:
     def capacity(self) -> int:
         return len(self.vectors)
 
-    def _dist(self, q: np.ndarray, row: int) -> float:
-        return dist.pairwise(self.metric, q, self.vectors[row])
+    def _tq(self, q: np.ndarray) -> np.ndarray:
+        return dist.working_query(q, self.metric)
 
-    def _dists(self, q: np.ndarray, rows: Sequence[int]) -> np.ndarray:
-        return dist.distance(self.metric, q, self.vectors[np.asarray(rows, dtype=np.int64)])
+    def _dist(self, qw: np.ndarray, row: int) -> float:
+        return float(dist.work_distance(self.metric, qw, self._w[row:row + 1])[0])
+
+    def _dists(self, qw: np.ndarray, rows: Sequence[int]) -> np.ndarray:
+        return dist.work_distance(self.metric, qw,
+                                  self._w[np.asarray(rows, dtype=np.int64)])
 
     def _grow(self, n: int) -> None:
         add = n - len(self.vectors)
@@ -72,6 +78,10 @@ class HNSW:
             return
         cap = max(64, 1 << max(int(math.ceil(math.log2(n))), 6))
         self.vectors = np.vstack([self.vectors, np.zeros((cap - len(self.vectors), self.dim), np.float32)])
+        if self.metric == "cosine":
+            self._w = np.vstack([self._w, np.zeros((cap - len(self._w), self.dim), np.float32)])
+        else:
+            self._w = self.vectors
         self._alive = np.concatenate([self._alive, np.zeros(cap - len(self._alive), bool)])
 
     # ------------------------------------------------------------- insertion
@@ -80,6 +90,7 @@ class HNSW:
         """Insert ``vector`` as graph node ``row``. Returns the assigned level."""
         self._grow(row + 1)
         self.vectors[row] = vector
+        self._w[row] = dist.working(vector, self.metric)[0]
         self._alive[row] = True
         level = _level_for(self._rng, self.level_mult)
         self.levels.append(level)
@@ -89,15 +100,16 @@ class HNSW:
             self.entry, self.max_level = row, level
             return level
 
+        qw = self._tq(vector)
         ep = self.entry
         # Greedy descent on layers above the new node's top.
         for layer in range(self.max_level, level, -1):
-            ep = self._greedy_layer(vector, ep, layer)
+            ep = self._greedy_layer(qw, ep, layer)
 
         for layer in range(min(level, self.max_level), -1, -1):
-            cands = self._search_layer(vector, [ep], self.ef_construction, layer)
+            cands = self._search_layer(qw, [ep], self.ef_construction, layer)
             maxM = self.maxM0 if layer == 0 else self.M
-            neighbours = self._select(vector, cands, maxM, layer)
+            neighbours = self._select(cands, maxM)
             self.links[row][layer] = neighbours
             for nb in neighbours:
                 nbs = self.links[nb][layer]
@@ -106,11 +118,10 @@ class HNSW:
                 else:
                     # Re-select including the new node, keeping the best maxM.
                     merged = nbs + [row]
+                    nbw = self._w[nb]
                     self.links[nb][layer] = self._select(
-                        self.vectors[nb],
-                        [(self._dist(self.vectors[nb], r), r) for r in merged],
+                        list(zip(self._dists(nbw, merged).tolist(), merged)),
                         maxM,
-                        layer,
                     )
             if cands:
                 ep = min(cands)[1]
@@ -121,30 +132,31 @@ class HNSW:
 
     # --------------------------------------------------------------- search
 
-    def _greedy_layer(self, q: np.ndarray, ep: int, layer: int) -> int:
-        best, best_d = ep, self._dist(q, ep)
+    def _greedy_layer(self, qw: np.ndarray, ep: int, layer: int) -> int:
+        best, best_d = ep, self._dist(qw, ep)
         improved = True
         while improved:
             improved = False
-            nbs = [nb for nb in self.links[best][layer] if self._alive[nb]]
-            if not nbs:
+            nbs = np.asarray(self.links[best][layer], dtype=np.int64)
+            nbs = nbs[self._alive[nbs]]
+            if not len(nbs):
                 break
-            for nb, d in zip(nbs, self._dists(q, nbs)):
+            for nb, d in zip(nbs.tolist(), self._dists(qw, nbs)):
                 if d < best_d:
                     best, best_d = nb, float(d)
                     improved = True
         return best
 
-    def _search_layer(self, q: np.ndarray, eps: List[int], ef: int, layer: int) -> List[Tuple[float, int]]:
+    def _search_layer(self, qw: np.ndarray, eps: List[int], ef: int, layer: int) -> List[Tuple[float, int]]:
         """Best-first search; returns up to ``ef`` (distance, row) results."""
-        visited: Set[int] = set()
+        visited = np.zeros(len(self.vectors), bool)
         cand_heap: List[Tuple[float, int]] = []  # min-heap of candidates to expand
         res_heap: List[Tuple[float, int]] = []   # max-heap (via -d) of results
         for ep in eps:
             if ep < 0 or not self._alive[ep]:
                 continue
-            d = self._dist(q, ep)
-            visited.add(ep)
+            d = self._dist(qw, ep)
+            visited[ep] = True
             heapq.heappush(cand_heap, (d, ep))
             heapq.heappush(res_heap, (-d, ep))
         while cand_heap:
@@ -152,10 +164,13 @@ class HNSW:
             worst = -res_heap[0][0]
             if d > worst and len(res_heap) >= ef:
                 break
-            new = [nb for nb in self.links[r][layer] if nb not in visited]
-            visited.update(new)
-            new = [nb for nb in new if self._alive[nb]]
-            for nb, dnb in zip(new, self._dists(q, new)):
+            new = np.asarray(self.links[r][layer], dtype=np.int64)
+            if not len(new):
+                continue
+            new = new[~visited[new]]
+            visited[new] = True
+            new = new[self._alive[new]]
+            for nb, dnb in zip(new.tolist(), self._dists(qw, new)):
                 dnb = float(dnb)
                 worst = -res_heap[0][0]
                 if len(res_heap) < ef or dnb < worst:
@@ -167,26 +182,31 @@ class HNSW:
         out.sort()
         return out
 
-    def _select(self, q: np.ndarray, cands: List[Tuple[float, int]], maxM: int, layer: int) -> List[int]:
+    def _select(self, cands: List[Tuple[float, int]], maxM: int) -> List[int]:
         """Neighbour selection.
 
         With ``select_heuristic`` (default) use the paper's diversity rule:
         keep a candidate only if it is closer to the query than to every
         already-picked neighbour — this keeps long-range edges. Otherwise take
-        the ``maxM`` closest candidates.
+        the ``maxM`` closest candidates. One pairwise distance matrix among
+        candidates is computed up front instead of per-pair numpy calls.
         """
+        cands = sorted(cands)
         if not self.select_heuristic:
             return [r for _, r in cands[:maxM]]
+        rows = [r for _, r in cands]
+        inner = dist.within(self.metric, self._w[np.asarray(rows, dtype=np.int64)])
         picked: List[Tuple[float, int]] = []
-        for d, r in sorted(cands):
+        picked_pos: List[int] = []
+        for j, (d, r) in enumerate(cands):
             if len(picked) >= maxM:
                 break
-            d_to_picked = self._dists(self.vectors[r], [p for _, p in picked])
-            if all(d <= float(dp) for dp in d_to_picked):
+            if all(d <= float(inner[j, p]) for p in picked_pos):
                 picked.append((d, r))
+                picked_pos.append(j)
         if len(picked) < maxM:  # heuristic under-filled; top up with nearest
             chosen = {r for _, r in picked}
-            for d, r in sorted(cands):
+            for d, r in cands:
                 if len(picked) >= maxM:
                     break
                 if r not in chosen:
@@ -201,11 +221,11 @@ class HNSW:
         if self.entry == -1 or k <= 0:
             return []
         ef = max(ef_search or 100, k)
-        q = np.asarray(query, dtype=np.float32)
+        qw = self._tq(np.asarray(query, dtype=np.float32))
         ep = self.entry
         for layer in range(self.max_level, 0, -1):
-            ep = self._greedy_layer(q, ep, layer)
-        cands = self._search_layer(q, [ep], ef, 0)
+            ep = self._greedy_layer(qw, ep, layer)
+        cands = self._search_layer(qw, [ep], ef, 0)
         out = []
         for d, r in cands:
             if predicate is None or predicate(r):
@@ -248,4 +268,8 @@ class HNSW:
         n = len(self.levels)
         self._alive = np.zeros(len(self.vectors), bool)
         self._alive[:n] = np.asarray(state["alive"], bool)
+        if self.metric == "cosine":
+            self._w = dist.working(self.vectors, self.metric)
+        else:
+            self._w = self.vectors
         self.entry, self.max_level = int(state["entry"]), int(state["max_level"])
